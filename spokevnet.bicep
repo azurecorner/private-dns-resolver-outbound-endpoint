@@ -3,8 +3,7 @@ param vnetAddressPrefixes string ='10.201.0.0/24'
 param defaultSubnetAddressPrefixes string ='10.201.0.0/26'
 param inboundPrivateIpAddress string = '10.200.0.70'
 
-@description('Use Private DNS Resolver for DNS resolution')
-param UsePrivateResolver bool = false
+
 
 resource spokevnet 'Microsoft.Network/virtualNetworks@2023-09-01' = {
   name: 'Spoke'
@@ -23,11 +22,11 @@ resource spokevnet 'Microsoft.Network/virtualNetworks@2023-09-01' = {
         }
       }
     ]
-    dhcpOptions: UsePrivateResolver == true ? {
+    dhcpOptions: {
       dnsServers: [
         inboundPrivateIpAddress
       ]
-    } : null
+    } 
   }
 }
 

@@ -5,12 +5,7 @@ param localAdminUsername string = 'logcorner'
 @secure()
 param localAdminPassword string   
 param storageAccountName string = 'logcornerstprivdnsrev'
-@allowed([
-  true
- false
-])
-@description('Use Private DNS Resolver for DNS resolution')
-param UsePrivateResolver bool = false
+
 
 module hubvnet './hubvnet.bicep' = {
   name: 'hubvnet'
@@ -23,7 +18,7 @@ module spokevnet './spokevnet.bicep' = {
   name: 'spokevnet'
   params: {
     location: location
-    UsePrivateResolver: UsePrivateResolver
+    
   }
 }
 
@@ -67,12 +62,13 @@ module storage 'storage.bicep' = {
   }
 }
 
-module privateresolver 'privateresolver.bicep' = if (UsePrivateResolver == true) {
+module privateresolver 'privateresolver.bicep' =  {
   name: 'privateresolver'
   params: {
     location: location
     hubvnetID: hubvnet.outputs.vnetID
     inboundSubnetID: hubvnet.outputs.inboundSubnetID
+    outboundSubnetID: hubvnet.outputs.outboundSubnetID
    
   }
 }

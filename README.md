@@ -255,7 +255,7 @@ $subscriptionId= (Get-AzContext).Subscription.id
 az account set --subscription $subscriptionId
 $resourceGroupName="rg-dns-private-resolver"
 New-AzResourceGroup -Name $resourceGroupName -Location "westeurope"
-New-AzResourceGroupDeployment -Name "NoPrivateResolver" -ResourceGroupName $resourceGroupName -TemplateFile main.bicep -UsePrivateResolver $false
+New-AzResourceGroupDeployment -Name "PrivateResolver" -ResourceGroupName $resourceGroupName -TemplateFile main.bicep -UsePrivateResolver $false
 ```
 run the following command :
 
@@ -288,7 +288,7 @@ $subscriptionId= (Get-AzContext).Subscription.id
 az account set --subscription $subscriptionId
 $resourceGroupName="rg-dns-private-resolver"
 New-AzResourceGroup -Name $resourceGroupName -Location "westeurope"
-New-AzResourceGroupDeployment -Name "UsePrivateResolver" -ResourceGroupName $resourceGroupName -TemplateFile main.bicep -UsePrivateResolver $true
+New-AzResourceGroupDeployment -Name "PrivateResolver" -ResourceGroupName $resourceGroupName -TemplateFile main.bicep 
 ```
 
 Restart the vm and run the following command :
