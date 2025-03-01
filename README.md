@@ -4,7 +4,8 @@ Azure DNS Private Resolver allow you to create your own provate dns server and/o
 
 for more informations about private dns resolver you can follow the official doumentation here : <https://learn.microsoft.com/en-us/azure/dns/dns-private-resolver-overview>
 
-In this tutorial, I will demonstrate how to create a custom DNS server using Azure DNS Private Resolver
+In this tutorial, I will demonstrate how to configure the outbound endpoint of Azure DNS Private Resolver.
+The inbound endpoint is configured in the previous tutorial : https://logcorner.com/azure-private-dns-resolver-using-inbound-endpoint/
 
 - **inbound endpoints:** Inbound endpoints require a subnet delegated to Microsoft.Network/dnsResolvers. In a virtual network, you must configure a custom DNS server using the private IP of the inbound endpoint.
 
@@ -17,7 +18,7 @@ Outbound endpoints require a dedicated subnet delegated to Microsoft.Network/dns
 
 DNS queries sent to the outbound endpoint will exit Azure.
 
-In this tutorial, I will configure only the inbound endpoint. The outbound endpoint will be set up in the next tutorial.
+
 
 ## 2. Infrastructure
 
@@ -26,7 +27,7 @@ Set up the Private DNS Resolver inbound endpoint using a private IP address from
 Delegate the inbound and outbound subnets to Microsoft.Network/dnsResolvers.
 In the spoke virtual network, configure the custom DNS server to use the private IP address of the DNS resolver inbound endpoint (e.g., 10.200.0.70).
 
-To setup  DNS Private Resolver inbound endpoint, you need the following infrastructure:
+To setup  DNS Private Resolver , you need the following infrastructure:
 
 - **A Hub virtual network with two subnets:**
   - Inbound subnet delegated to Microsoft.Network/dnsResolvers
@@ -49,6 +50,24 @@ To setup  DNS Private Resolver inbound endpoint, you need the following infrastr
 ### 2.1 Hub Virtual Network
 
 /*------------------------------------------ Hub Virtual Network ------------------------------------------*/
+
+# Bicep Subnet Definition: `Outbound`
+
+
+The following Bicep code defines a subnet named **Outbound** with specific properties.
+
+
+
+#### 2.1.1. **Subnet Name**
+   - The subnet is named **Outbound**.
+
+#### 2.1.2. **Address Prefix**
+   - The `addressPrefix` property is assigned the value of `outboundSubnetAddressPrefixes`.
+   - This variable contains the CIDR range for the subnet.
+
+#### 2.1.3. **Delegations**
+   - The subnet is **delegated** to  `Microsoft.Network.dnsResolvers`service and allows the subnet to be used for **Azure DNS Private Resolvers**.
+
 
 ```bicep
 resource hubvnet 'Microsoft.Network/virtualNetworks@2023-09-01' = {
@@ -101,143 +120,65 @@ resource hubvnet 'Microsoft.Network/virtualNetworks@2023-09-01' = {
 
 ```
 
-### 2.2 Spoke Virtual Network
 
-/*------------------------------------------ Spoke Virtual Network ------------------------------------------*/
+### 2.2 Private Resolver Outbound Endpoint
 
-```bicep
-resource spokevnet 'Microsoft.Network/virtualNetworks@2023-09-01' = {
-  name: 'Spoke'
-  location: location
-  properties: {
-    addressSpace: {
-      addressPrefixes: [
-        '10.201.0.0/24'
-      ]
-    }
-    subnets: [
-      {
-        name: 'default'
-        properties: {
-          addressPrefix: '10.201.0.0/26'
-        }
-      }
-    ]
-    dhcpOptions: Stage == 'EndStage' ? {
-      dnsServers: [
-        '10.200.0.70'
-      ]
-    } : null
-  }
-}
+This Bicep code sets up a **DNS forwarding configuration** in Azure using an **Azure DNS Private Resolver**. It allows Azure resources to resolve **on-premises domain names** by forwarding DNS queries to an **on-premises DNS server**.
 
-```
+#### 2.2.1. Creating an Outbound Endpoint
+- An **outbound endpoint** is created within a specified subnet.
+- This endpoint enables **Azure DNS Private Resolver** to send DNS queries outside of Azure.
 
-### 2.3 Storage Account
+#### 2.2.2. Defining a DNS Forwarding Ruleset
+- A **DNS forwarding ruleset** is created and linked to the outbound endpoint.
+- This ruleset determines how DNS queries should be handled and forwarded.
 
-/*------------------------------------------ Storage Account -----------------------------------------------*/
+#### 2.2.3. Configuring a DNS Forwarding Rule
+- A **forwarding rule** is added to the ruleset.
+- Any DNS query for the domain **`logcorner.onpremise.`** will be forwarded to the on-premises DNS server at **10.100.0.5** on port **53**.
+
+#### 2.2.4. How It Works Together
+1. Azure resources send DNS queries.
+2. If the query matches **`logcorner.onpremise.`**, it is forwarded via the **outbound endpoint**.
+3. The query reaches the **on-premises DNS server** at **10.100.0.5** for resolution.
+
+
+/*------------------------------------------ Private Resolver Outbound Endpoint ------------------------------------------*/
 
 ```bicep
-resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
-  name: storageAccountName
-  location: location
-  sku: {
-    name: 'Standard_LRS'
-  }
-  kind: 'StorageV2'
-  properties: {
-    publicNetworkAccess: 'Disabled'
-    accessTier: 'Cool'
-  }
-}
-
-resource fileService 'Microsoft.Storage/storageAccounts/fileServices@2023-01-01' = {
-  name: 'default'
-  parent: storageAccount
-}
-
-resource share 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-01-01' = {
-  name: 'share'
-  parent: fileService
-  properties: {
-    accessTier: 'Cool'
-  }
-}
-```
-
-### 2.4 Storage Account  Private Endpoint
-
-/*---------------------------------------  Storage Account  Private Endpoint ----------------------------------*/
-
-```bicep
-resource privateEndpoint 'Microsoft.Network/privateEndpoints@2023-09-01' = {
-  name: 'private'
-  location: location
-  properties: {
-    subnet: {
-      id: spokeSubnetID
-    }
-    privateLinkServiceConnections: [
-      {
-        name: 'private'
-        properties: {
-          privateLinkServiceId: storageAccount.id
-          groupIds: [
-            'file'
-          ]
-        }
-      } 
-    ]
-  }
-}
-
-resource privateDNSZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
-  name: 'privatelink.file.${environment().suffixes.storage}'
-  location: 'global'
-}
-
-resource privateDNSZoneLinkToHub 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = {
-  name: 'privatelink.file.${environment().suffixes.storage}-linkToHub'
-  parent: privateDNSZone
-  location: 'global'
-  properties: {
-    registrationEnabled: false
-    virtualNetwork: {
-      id: hubVnetID
-    }
-  }
-}
-
-```
-
-### 2.5 Private Resolver
-
-/*------------------------------------------ Private Resolver -------------------------------------------------*/
-
-```bicep
-resource privateResolver 'Microsoft.Network/dnsResolvers@2022-07-01' = {
-  name: 'privateResolver'
-  location: location
-  properties: {
-    virtualNetwork: {
-      id: hubvnetID
-    }
-  }
-}
-
-resource inboundEndpoint 'Microsoft.Network/dnsResolvers/inboundEndpoints@2022-07-01' = {
-  name: 'inboundEndpoint'
+      resource outboundEndpoint 'Microsoft.Network/dnsResolvers/outboundEndpoints@2022-07-01' = {
+  name: 'outboundEndpoint'
   location: location
   parent: privateResolver
   properties: {
-    ipConfigurations: [
+    subnet: {
+      id: outboundSubnetID
+    }
+  }
+}
+
+resource labzoneRuleset 'Microsoft.Network/dnsForwardingRulesets@2022-07-01' = {
+  name: 'labzoneRuleset'
+  location: location
+  properties: {
+    dnsResolverOutboundEndpoints: [
       {
-        privateIpAddress: outboundPrivateIpAddress
-        privateIpAllocationMethod: 'Static'
-        subnet: {
-          id: inboundSubnetID
-        }
+        id: outboundEndpoint.id
       }
+    ]
+  }
+}
+
+resource labzoneForwarding 'Microsoft.Network/dnsForwardingRulesets/forwardingRules@2022-07-01' = {
+  name: 'labzoneForwarding'
+  parent: labzoneRuleset
+  properties: {
+    domainName: 'logcorner.onpremise.'
+    targetDnsServers: [
+       {
+        ipAddress: '10.100.0.5'
+        port: 53
+       }
     ]
   }
 }
@@ -245,41 +186,6 @@ resource inboundEndpoint 'Microsoft.Network/dnsResolvers/inboundEndpoints@2022-0
 ```
 
 ### Deployment Commands  
-
-**Test deployement using Default Azure DNS**
-
-```powershell
-Connect-AzAccount -Tenant 'xxxx-xxxx-xxxx-xxxx' -SubscriptionId 'yyyy-yyyy-yyyy-yyyy'
-
-$subscriptionId= (Get-AzContext).Subscription.id
-az account set --subscription $subscriptionId
-$resourceGroupName="rg-dns-private-resolver"
-New-AzResourceGroup -Name $resourceGroupName -Location "westeurope"
-New-AzResourceGroupDeployment -Name "PrivateResolver" -ResourceGroupName $resourceGroupName -TemplateFile main.bicep -UsePrivateResolver $false
-```
-run the following command :
-
-```powershell
-nslookup logcornerstprivdnsrev.file.core.windows.net
-
-```
-
-returns the following
-
-```powershell
-Server:  UnKnown
-Address:  168.63.129.16
-
-Non-authoritative answer:
-Name:    logcornerstprivdnsrev.privatelink.file.core.windows.net
-Address:  10.201.0.5
-Aliases:  logcornerstprivdnsrev.file.core.windows.net
-
-```
-
-The query resolved the domain to the private IP address 10.201.0.5, indicating that Azure's default DNS service is functioning as expected, resolving the logcornerstprivdnsrev.file.core.windows.net domain to its corresponding private endpoint.
-
-**Test deployement using Azure Private DNS Resolver**
 
 ```powershell
 Connect-AzAccount -Tenant 'xxxx-xxxx-xxxx-xxxx' -SubscriptionId 'yyyy-yyyy-yyyy-yyyy'
@@ -291,26 +197,6 @@ New-AzResourceGroup -Name $resourceGroupName -Location "westeurope"
 New-AzResourceGroupDeployment -Name "PrivateResolver" -ResourceGroupName $resourceGroupName -TemplateFile main.bicep 
 ```
 
-Restart the vm and run the following command :
-
-```powershell
-nslookup logcornerstprivdnsrev.file.core.windows.net
-```
-
-returns the following
-
-```powershell
-Server:  UnKnown
-Address:  10.200.0.70
-
-Non-authoritative answer:
-Name:    logcornerstprivdnsrev.privatelink.file.core.windows.net
-Address:  10.201.0.5
-Aliases:  logcornerstprivdnsrev.file.core.windows.net
-```
-
-The query resolved the domain to the private IP address 10.201.0.5, indicating that the custom DNS server at 10.200.0.70 is functioning as expected, resolving the logcornerstprivdnsrev.file.core.windows.net domain to its corresponding private endpoint.
-
 ### Github Repository
 
-[<[https://github.com/azurecorner/deployment-script-privately-over-a-private-endpoint-custum-dns-02](https://github.com/azurecorner/private-dns-resolver-inbound-endpoint)>](https://github.com/azurecorner/private-dns-resolver-inbound-endpoint)
+https://github.com/azurecorner/private-dns-resolver-outbound-endpoint
